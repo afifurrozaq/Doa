@@ -1,0 +1,5 @@
+{
+  "name": "Doa Harian Modern",
+  "description": "Aplikasi kumpulan doa harian dengan teks Arab, transliterasi, dan terjemahan dalam tampilan modern dan menenangkan.",
+  "requestFramePermissions": ["geolocation"]
+}

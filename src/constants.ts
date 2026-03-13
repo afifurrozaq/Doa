@@ -1,13 +1,4 @@
-export interface Doa {
-  id: string;
-  title: string;
-  arabic: string;
-  latin: string;
-  translation: string;
-  category: string;
-  source?: string;
-  notes?: string;
-}
+import { Doa } from './types';
 
 export const DOA_DATA: Doa[] = [
   {

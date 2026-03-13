@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Search, Book, ChevronRight, Play, Pause, X, Info, Volume2, ArrowLeft, WifiOff, Download, CheckCircle2 } from 'lucide-react';
+import { Search, Book, ChevronRight, Play, Pause, X, Info, Volume2, ArrowLeft, WifiOff, Download, CheckCircle2, Bookmark, BookmarkCheck } from 'lucide-react';
+import { Doa, AppTab, QuranBookmark } from '../types';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -38,6 +39,8 @@ interface SurahDetail extends Surah {
 
 interface QuranProps {
   darkMode: boolean;
+  navigatedAyat?: { surahNomor: number; ayatNomor: number } | null;
+  onClearNavigation?: () => void;
 }
 
 const TajweedAyat: React.FC<{ text: string; darkMode: boolean }> = ({ text, darkMode }) => {
@@ -127,7 +130,7 @@ const TajweedAyat: React.FC<{ text: string; darkMode: boolean }> = ({ text, dark
   );
 };
 
-const Quran: React.FC<QuranProps> = ({ darkMode }) => {
+const Quran: React.FC<QuranProps> = ({ darkMode, navigatedAyat, onClearNavigation }) => {
   const [view, setView] = useState<'list' | 'detail' | 'juz-detail'>('list');
   const [activeTab, setActiveTab] = useState<'surah' | 'juz'>('surah');
   const [selectedJuz, setSelectedJuz] = useState<any>(null);
@@ -140,9 +143,12 @@ const Quran: React.FC<QuranProps> = ({ darkMode }) => {
   const [playingAudio, setPlayingAudio] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [cachedSurahs, setCachedSurahs] = useState<number[]>([]);
+  const [downloadingSurah, setDownloadingSurah] = useState<number | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const [showTajweedGuide, setShowTajweedGuide] = useState(false);
+  const [bookmarks, setBookmarks] = useState<QuranBookmark[]>([]);
 
   useEffect(() => {
     const handleStatus = () => setIsOffline(!navigator.onLine);
@@ -154,6 +160,22 @@ const Quran: React.FC<QuranProps> = ({ darkMode }) => {
     if (savedSurahs) {
       setSurahs(JSON.parse(savedSurahs));
       setLoading(false);
+    }
+
+    // Load bookmarks
+    const savedBookmarks = localStorage.getItem('quran_bookmarks');
+    if (savedBookmarks) {
+      setBookmarks(JSON.parse(savedBookmarks));
+    } else {
+      // Migrate old last_read if exists
+      const oldLastRead = localStorage.getItem('quran_last_read');
+      if (oldLastRead) {
+        const lr = JSON.parse(oldLastRead);
+        const initialBookmark: QuranBookmark = { ...lr, timestamp: Date.now() };
+        setBookmarks([initialBookmark]);
+        localStorage.setItem('quran_bookmarks', JSON.stringify([initialBookmark]));
+        localStorage.removeItem('quran_last_read');
+      }
     }
 
     // Check which surahs are cached in detail
@@ -171,6 +193,33 @@ const Quran: React.FC<QuranProps> = ({ darkMode }) => {
     };
   }, []);
 
+  useEffect(() => {
+    if (navigatedAyat) {
+      openSurah(navigatedAyat.surahNomor, navigatedAyat.ayatNomor);
+      if (onClearNavigation) onClearNavigation();
+    }
+  }, [navigatedAyat]);
+
+  const saveBookmark = (surahNomor: number, surahNama: string, ayatNomor: number) => {
+    const newBookmark: QuranBookmark = { surahNomor, surahNama, ayatNomor, timestamp: Date.now() };
+    
+    setBookmarks(prev => {
+      // Remove existing bookmark for same surah/ayat if any
+      const filtered = prev.filter(b => !(b.surahNomor === surahNomor && b.ayatNomor === ayatNomor));
+      const updated = [newBookmark, ...filtered].slice(0, 20); // Keep last 20
+      localStorage.setItem('quran_bookmarks', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const removeBookmark = (surahNomor: number, ayatNomor: number) => {
+    setBookmarks(prev => {
+      const updated = prev.filter(b => !(b.surahNomor === surahNomor && b.ayatNomor === ayatNomor));
+      localStorage.setItem('quran_bookmarks', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
   const fetchSurahs = async () => {
     if (!navigator.onLine && surahs.length > 0) return;
     
@@ -186,21 +235,42 @@ const Quran: React.FC<QuranProps> = ({ darkMode }) => {
     }
   };
 
-  const openSurah = async (nomor: number) => {
+  const openSurah = async (nomor: number, scrollToAyat?: number) => {
     setView('detail');
     setLoadingDetail(true);
     
     // Try cache first
     const cached = localStorage.getItem(`quran_surah_${nomor}`);
+    let surahData = null;
+
     if (cached) {
-      setSelectedSurah(JSON.parse(cached));
+      surahData = JSON.parse(cached);
+      setSelectedSurah(surahData);
       setLoadingDetail(false);
+      
+      if (scrollToAyat) {
+        setTimeout(() => {
+          const element = document.getElementById(`ayat-${scrollToAyat}`);
+          if (element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 500);
+      }
+
       // Still fetch in background if online to update
       if (navigator.onLine) {
         fetchSurahDetail(nomor, true);
       }
     } else {
-      await fetchSurahDetail(nomor);
+      surahData = await fetchSurahDetail(nomor);
+      if (surahData && scrollToAyat) {
+        setTimeout(() => {
+          const element = document.getElementById(`ayat-${scrollToAyat}`);
+          if (element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
+        }, 500);
+      }
     }
   };
 
@@ -232,8 +302,10 @@ const Quran: React.FC<QuranProps> = ({ darkMode }) => {
       if (!cachedSurahs.includes(nomor)) {
         setCachedSurahs(prev => [...prev, nomor]);
       }
+      return surahData;
     } catch (error) {
       console.error('Error fetching surah detail:', error);
+      return null;
     } finally {
       if (!background) setLoadingDetail(false);
     }
@@ -244,7 +316,7 @@ const Quran: React.FC<QuranProps> = ({ darkMode }) => {
     s.arti.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const toggleAudio = (url: string) => {
+  const toggleAudio = async (url: string) => {
     if (playingAudio === url) {
       audioRef.current?.pause();
       setPlayingAudio(null);
@@ -252,11 +324,92 @@ const Quran: React.FC<QuranProps> = ({ darkMode }) => {
       if (audioRef.current) {
         audioRef.current.pause();
       }
-      const audio = new Audio(url);
+      
+      let audioUrl = url;
+      
+      // Try to get from cache first
+      try {
+        const cache = await caches.open('quran-audio');
+        const cachedResponse = await cache.match(url);
+        if (cachedResponse) {
+          const blob = await cachedResponse.blob();
+          audioUrl = URL.createObjectURL(blob);
+        } else if (!navigator.onLine) {
+          alert('Audio ini belum diunduh untuk akses offline.');
+          return;
+        }
+      } catch (e) {
+        console.error('Error checking audio cache:', e);
+      }
+
+      const audio = new Audio(audioUrl);
       audioRef.current = audio;
       audio.play();
       setPlayingAudio(url);
-      audio.onended = () => setPlayingAudio(null);
+      audio.onended = () => {
+        setPlayingAudio(null);
+        if (audioUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(audioUrl);
+        }
+      };
+    }
+  };
+
+  const downloadSurah = async (surah: SurahDetail) => {
+    if (downloadingSurah !== null) return;
+    
+    setDownloadingSurah(surah.nomor);
+    setDownloadProgress(0);
+    
+    try {
+      const cache = await caches.open('quran-audio');
+      const totalAyat = surah.ayat.length;
+      
+      // Download each ayat audio
+      for (let i = 0; i < totalAyat; i++) {
+        const ayat = surah.ayat[i];
+        const audioUrl = ayat.audio['03']; // Using Sudais audio as default
+        
+        const cachedResponse = await cache.match(audioUrl);
+        if (!cachedResponse) {
+          await cache.add(audioUrl);
+        }
+        
+        setDownloadProgress(Math.round(((i + 1) / totalAyat) * 100));
+      }
+      
+      // Mark as cached in localStorage (details already saved in openSurah/fetchSurahDetail)
+      if (!cachedSurahs.includes(surah.nomor)) {
+        setCachedSurahs(prev => [...prev, surah.nomor]);
+      }
+      
+      // Also save full detail to ensure it's there
+      localStorage.setItem(`quran_surah_${surah.nomor}`, JSON.stringify(surah));
+      
+    } catch (error) {
+      console.error('Error downloading surah:', error);
+      alert('Gagal mengunduh surah. Pastikan koneksi internet stabil.');
+    } finally {
+      setDownloadingSurah(null);
+      setDownloadProgress(0);
+    }
+  };
+
+  const removeDownloadedSurah = async (nomor: number) => {
+    const confirmDelete = window.confirm('Hapus data offline surah ini?');
+    if (!confirmDelete) return;
+
+    try {
+      // Remove from localStorage
+      localStorage.removeItem(`quran_surah_${nomor}`);
+      setCachedSurahs(prev => prev.filter(id => id !== nomor));
+      
+      // Note: We don't necessarily remove audio from Cache API here 
+      // as it might be shared or we might want to keep it.
+      // But for a clean "remove", we should ideally remove its specific audios.
+      // For now, removing from cachedSurahs list is enough to hide the "Offline" indicator.
+    } catch (e) {
+      console.error('Error removing surah:', e);
     }
   };
 
@@ -264,9 +417,26 @@ const Quran: React.FC<QuranProps> = ({ darkMode }) => {
     setView('juz-detail');
     setLoadingJuz(true);
     try {
-      const response = await fetch(`https://api.alquran.cloud/v1/juz/${nomor}/quran-tajweed`);
-      const data = await response.json();
-      setSelectedJuz(data.data);
+      // Fetch Tajweed text and Sudais audio in parallel
+      const [tajweedRes, audioRes] = await Promise.all([
+        fetch(`https://api.alquran.cloud/v1/juz/${nomor}/quran-tajweed`),
+        fetch(`https://api.alquran.cloud/v1/juz/${nomor}/ar.sudais`)
+      ]);
+      
+      const tajweedData = await tajweedRes.json();
+      const audioData = await audioRes.json();
+
+      if (tajweedData.code === 200 && audioData.code === 200) {
+        const ayahs = tajweedData.data.ayahs.map((ayah: any, index: number) => ({
+          ...ayah,
+          audioSudais: audioData.data.ayahs[index].audio
+        }));
+
+        setSelectedJuz({
+          ...tajweedData.data,
+          ayahs
+        });
+      }
     } catch (error) {
       console.error('Error fetching juz:', error);
     } finally {
@@ -323,11 +493,24 @@ const Quran: React.FC<QuranProps> = ({ darkMode }) => {
           {selectedJuz.ayahs.map((ayat: any, index: number) => (
             <div key={index} className="space-y-6 group">
               <div className="flex justify-between items-start gap-6">
-                <div className={cn(
-                  "px-3 py-1 rounded-xl flex items-center justify-center text-[10px] font-bold shrink-0 border transition-colors",
-                  darkMode ? "bg-emerald-900/20 border-emerald-800/30 text-emerald-400" : "bg-emerald-50 border-emerald-100 text-emerald-600"
-                )}>
-                  {ayat.surah.name} • {ayat.numberInSurah}
+                <div className="flex flex-col gap-2 shrink-0">
+                  <div className={cn(
+                    "px-3 py-1 rounded-xl flex items-center justify-center text-[10px] font-bold border transition-colors",
+                    darkMode ? "bg-emerald-900/20 border-emerald-800/30 text-emerald-400" : "bg-emerald-50 border-emerald-100 text-emerald-600"
+                  )}>
+                    {ayat.surah.name} • {ayat.numberInSurah}
+                  </div>
+                  <button
+                    onClick={() => toggleAudio(ayat.audioSudais)}
+                    className={cn(
+                      "w-10 h-10 rounded-2xl flex items-center justify-center transition-all",
+                      playingAudio === ayat.audioSudais
+                        ? (darkMode ? "bg-emerald-500 text-white" : "bg-emerald-600 text-white shadow-md")
+                        : (darkMode ? "bg-gray-800 text-gray-500 hover:text-emerald-400" : "bg-gray-50 text-gray-400 hover:text-emerald-600")
+                    )}
+                  >
+                    {playingAudio === ayat.audioSudais ? <Pause size={16} /> : <Play size={16} />}
+                  </button>
                 </div>
                 <TajweedAyat text={ayat.text} darkMode={darkMode} />
               </div>
@@ -383,15 +566,50 @@ const Quran: React.FC<QuranProps> = ({ darkMode }) => {
                 darkMode ? "text-emerald-600" : "text-emerald-600"
               )}>{selectedSurah.arti} • {selectedSurah.tempatTurun}</p>
             </div>
-            <button 
-              onClick={() => toggleAudio(selectedSurah.audioFull['03'])}
-              className={cn(
-                "p-2 rounded-xl transition-colors",
-                darkMode ? "bg-emerald-900/40 text-emerald-400 hover:bg-emerald-900/60" : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+            <div className="flex items-center gap-2">
+              {cachedSurahs.includes(selectedSurah.nomor) ? (
+                <button 
+                  onClick={() => removeDownloadedSurah(selectedSurah.nomor)}
+                  className={cn(
+                    "p-2 rounded-xl transition-colors",
+                    darkMode ? "bg-emerald-900/40 text-emerald-400" : "bg-emerald-50 text-emerald-600"
+                  )}
+                  title="Hapus Offline"
+                >
+                  <Download size={20} className="rotate-180" />
+                </button>
+              ) : (
+                <button 
+                  onClick={() => downloadSurah(selectedSurah)}
+                  disabled={downloadingSurah !== null}
+                  className={cn(
+                    "p-2 rounded-xl transition-colors relative",
+                    darkMode ? "bg-emerald-900/40 text-emerald-400" : "bg-emerald-50 text-emerald-600",
+                    downloadingSurah === selectedSurah.nomor && "animate-pulse"
+                  )}
+                  title="Unduh untuk Offline"
+                >
+                  <Download size={20} />
+                  {downloadingSurah === selectedSurah.nomor && (
+                    <div className="absolute -bottom-1 left-0 w-full h-1 bg-gray-200 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-emerald-500 transition-all duration-300" 
+                        style={{ width: `${downloadProgress}%` }}
+                      />
+                    </div>
+                  )}
+                </button>
               )}
-            >
-              {playingAudio === selectedSurah.audioFull['03'] ? <Pause size={20} /> : <Volume2 size={20} />}
-            </button>
+              <button 
+                onClick={() => toggleAudio(selectedSurah.audioFull['03'])}
+                className={cn(
+                  "p-2 rounded-xl transition-colors",
+                  darkMode ? "bg-emerald-900/40 text-emerald-400 hover:bg-emerald-900/60" : "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                )}
+              >
+                {playingAudio === selectedSurah.audioFull['03'] ? <Pause size={20} /> : <Volume2 size={20} />}
+              </button>
+            </div>
           </div>
           
           {/* Info Bar */}
@@ -428,13 +646,47 @@ const Quran: React.FC<QuranProps> = ({ darkMode }) => {
           )}
 
           {selectedSurah.ayat.map((ayat) => (
-            <div key={ayat.nomorAyat} className="space-y-6 group">
+            <div key={ayat.nomorAyat} id={`ayat-${ayat.nomorAyat}`} className="space-y-6 group scroll-mt-32">
               <div className="flex justify-between items-start gap-6">
-                <div className={cn(
-                  "w-10 h-10 rounded-2xl flex items-center justify-center text-xs font-bold shrink-0 border transition-colors",
-                  darkMode ? "bg-emerald-900/20 border-emerald-800/30 text-emerald-400" : "bg-emerald-50 border-emerald-100 text-emerald-600"
-                )}>
-                  {ayat.nomorAyat}
+                <div className="flex flex-col gap-2 shrink-0">
+                  <div className={cn(
+                    "w-10 h-10 rounded-2xl flex items-center justify-center text-xs font-bold border transition-colors",
+                    darkMode ? "bg-emerald-900/20 border-emerald-800/30 text-emerald-400" : "bg-emerald-50 border-emerald-100 text-emerald-600"
+                  )}>
+                    {ayat.nomorAyat}
+                  </div>
+                  <button
+                    onClick={() => {
+                      const isBookmarked = bookmarks.some(b => b.surahNomor === selectedSurah.nomor && b.ayatNomor === ayat.nomorAyat);
+                      if (isBookmarked) {
+                        removeBookmark(selectedSurah.nomor, ayat.nomorAyat);
+                      } else {
+                        saveBookmark(selectedSurah.nomor, selectedSurah.namaLatin, ayat.nomorAyat);
+                      }
+                    }}
+                    className={cn(
+                      "w-10 h-10 rounded-2xl flex items-center justify-center transition-all",
+                      bookmarks.some(b => b.surahNomor === selectedSurah.nomor && b.ayatNomor === ayat.nomorAyat)
+                        ? (darkMode ? "bg-emerald-500 text-white" : "bg-emerald-600 text-white shadow-md")
+                        : (darkMode ? "bg-gray-800 text-gray-500 hover:text-emerald-400" : "bg-gray-50 text-gray-400 hover:text-emerald-600")
+                    )}
+                  >
+                    {bookmarks.some(b => b.surahNomor === selectedSurah.nomor && b.ayatNomor === ayat.nomorAyat) 
+                      ? <BookmarkCheck size={18} /> 
+                      : <Bookmark size={18} />
+                    }
+                  </button>
+                  <button
+                    onClick={() => toggleAudio(ayat.audio['03'])}
+                    className={cn(
+                      "w-10 h-10 rounded-2xl flex items-center justify-center transition-all",
+                      playingAudio === ayat.audio['03']
+                        ? (darkMode ? "bg-emerald-500 text-white" : "bg-emerald-600 text-white shadow-md")
+                        : (darkMode ? "bg-gray-800 text-gray-500 hover:text-emerald-400" : "bg-gray-50 text-gray-400 hover:text-emerald-600")
+                    )}
+                  >
+                    {playingAudio === ayat.audio['03'] ? <Pause size={18} /> : <Play size={18} />}
+                  </button>
                 </div>
                 {ayat.teksTajweed ? (
                   <TajweedAyat text={ayat.teksTajweed} darkMode={darkMode} />
@@ -589,6 +841,52 @@ const Quran: React.FC<QuranProps> = ({ darkMode }) => {
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 pb-32 no-scrollbar">
+        {/* Last Read Card - Always visible on main screen */}
+        {bookmarks.length > 0 && (
+          <motion.button
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            onClick={() => openSurah(bookmarks[0].surahNomor, bookmarks[0].ayatNomor)}
+            className={cn(
+              "w-full mb-6 p-5 rounded-3xl border flex items-center justify-between transition-all group overflow-hidden relative",
+              darkMode ? "bg-emerald-900/20 border-emerald-800/30" : "bg-emerald-600 border-emerald-500 shadow-lg shadow-emerald-600/20"
+            )}
+          >
+            <div className="relative z-10 flex items-center gap-4">
+              <div className={cn(
+                "w-12 h-12 rounded-2xl flex items-center justify-center",
+                darkMode ? "bg-emerald-500/20 text-emerald-400" : "bg-white/20 text-white"
+              )}>
+                <Bookmark size={24} />
+              </div>
+              <div className="text-left">
+                <p className={cn(
+                  "text-[10px] font-bold uppercase tracking-widest mb-1",
+                  darkMode ? "text-emerald-500" : "text-emerald-100"
+                )}>Terakhir Dibaca</p>
+                <h3 className={cn(
+                  "font-bold text-lg",
+                  darkMode ? "text-gray-100" : "text-white"
+                )}>{bookmarks[0].surahNama}</h3>
+                <p className={cn(
+                  "text-xs font-medium",
+                  darkMode ? "text-emerald-400/70" : "text-emerald-50"
+                )}>Ayat {bookmarks[0].ayatNomor}</p>
+              </div>
+            </div>
+            <ChevronRight size={20} className={cn(
+              "relative z-10",
+              darkMode ? "text-emerald-500" : "text-white/50"
+            )} />
+            
+            {/* Decorative Background Elements */}
+            <div className={cn(
+              "absolute -right-4 -bottom-4 w-24 h-24 rounded-full blur-2xl",
+              darkMode ? "bg-emerald-500/10" : "bg-white/10"
+            )} />
+          </motion.button>
+        )}
+
         {activeTab === 'surah' ? (
           <>
             {/* Tajweed Guide Toggle */}
@@ -707,7 +1005,7 @@ const Quran: React.FC<QuranProps> = ({ darkMode }) => {
                   )}>
                     {surah.nomor}
                     {cachedSurahs.includes(surah.nomor) && (
-                      <div className="absolute -top-1 -right-1 bg-blue-500 w-3 h-3 rounded-full border-2 border-white dark:border-gray-800" />
+                      <div className="absolute -top-1 -right-1 bg-blue-500 w-3 h-3 rounded-full border-2 border-white dark:border-gray-900 shadow-sm" title="Tersedia Offline" />
                     )}
                   </div>
                   <div>

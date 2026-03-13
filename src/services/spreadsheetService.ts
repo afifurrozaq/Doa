@@ -1,21 +1,32 @@
 import Papa from 'papaparse';
-import { Doa, DOA_DATA } from '../constants';
+import { Doa } from '../types';
+import { DOA_DATA } from '../constants';
 
 const SHEET_ID = import.meta.env.VITE_GOOGLE_SHEET_ID;
 
 const getCsvUrl = () => {
   if (!SHEET_ID) return '';
   
+  // Extract ID if user pasted full URL
+  let cleanId = SHEET_ID;
+  if (SHEET_ID.includes('docs.google.com/spreadsheets/d/')) {
+    const matches = SHEET_ID.match(/\/d\/([^\/]+)/);
+    if (matches && matches[1]) cleanId = matches[1];
+  } else if (SHEET_ID.includes('pubhtml')) {
+    const matches = SHEET_ID.match(/\/e\/([^\/]+)/);
+    if (matches && matches[1]) cleanId = matches[1];
+  }
+  
   // Cache busting with timestamp
   const timestamp = new Date().getTime();
   
   // If it's a published ID (starts with 2PACX)
-  if (SHEET_ID.startsWith('2PACX')) {
-    return `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?output=csv&t=${timestamp}`;
+  if (cleanId.startsWith('2PACX')) {
+    return `https://docs.google.com/spreadsheets/d/e/${cleanId}/pub?output=csv&t=${timestamp}`;
   }
   
   // Standard Sheet ID
-  return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&t=${timestamp}`;
+  return `https://docs.google.com/spreadsheets/d/${cleanId}/export?format=csv&t=${timestamp}`;
 };
 
 export const fetchDoaFromSpreadsheet = async (): Promise<Doa[]> => {
@@ -63,11 +74,18 @@ export const fetchDoaFromSpreadsheet = async (): Promise<Doa[]> => {
     const response = await fetchWithRetry();
 
     if (!response.ok) {
-      console.error(`Spreadsheet fetch failed with status: ${response.status} ${response.statusText}`);
-      throw new Error(`HTTP error! status: ${response.status}`);
+      const errorMsg = `Spreadsheet fetch failed: ${response.status} ${response.statusText}`;
+      console.error(errorMsg);
+      throw new Error(errorMsg);
     }
     
     const csvText = await response.text();
+    
+    if (csvText.includes('<!DOCTYPE html>') || csvText.includes('<html')) {
+      const errorMsg = 'Received HTML instead of CSV. Ensure the Google Sheet is "Published to the web" as CSV.';
+      console.error(errorMsg);
+      throw new Error(errorMsg);
+    }
     
     return new Promise((resolve) => {
       Papa.parse(csvText, {

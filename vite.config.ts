@@ -15,8 +15,8 @@ export default defineConfig(({ mode }) => {
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
         manifest: {
           name: 'Doa Harian',
-          short_name: 'DoaHarian',
-          description: 'Kumpulan doa harian dengan teks Arab, transliterasi, dan terjemahan.',
+          short_name: 'Doa Harian',
+          description: 'Doa Harian - Baca Al-Quran dengan panduan tajwid berwarna, audio murottal, dan fitur bookmark. Dan baca doa harian dengan teks Arab, transliterasi, dan terjemahan.',
           theme_color: '#059669',
           background_color: '#FDFCF9',
           display: 'standalone',

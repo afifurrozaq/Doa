@@ -12,7 +12,39 @@ This project was built as a simple frontend project to practice working with **s
 
 ---
 
-## 📸 Preview
+## 📸 Preview New Version 1.4.0
+
+
+<table>
+<tr>
+<td align="center">
+<img src="/screenshot/1_1.4.png" width="400">
+</td>
+<td align="center">
+<img src="/screenshot/2_1.4.png" width="400">
+</td>
+
+</tr>
+<tr>
+<td align="center">
+<img src="/screenshot/3_1.4.png" width="400">
+</td>
+<td align="center">
+<img src="/screenshot/4_1.4.png" width="400">
+</td>
+
+</tr>
+</tr>
+<tr>
+<td align="center">
+<img src="/screenshot/5.png" width="400">
+</td>
+
+
+</tr>
+</table>
+
+---------------------------------------------
 
 <table>
 <tr>

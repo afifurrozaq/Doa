@@ -12,10 +12,29 @@ export async function fetchPrayerTimes(lat: number, lon: number): Promise<Prayer
     const response = await fetch(`https://api.aladhan.com/v1/timings?latitude=${lat}&longitude=${lon}&method=2`);
     const data = await response.json();
     if (data.code === 200) {
-      return data.data.timings;
+      const timings = data.data.timings;
+      const hijri = data.data.date.hijri;
+      return {
+        ...timings,
+        hijriDate: `${hijri.day} ${hijri.month.en} ${hijri.year} H`
+      };
     }
   } catch (error) {
     console.error("Error fetching prayer times:", error);
+  }
+  return null;
+}
+
+export async function fetchAddress(lat: number, lon: number): Promise<string | null> {
+  try {
+    const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`);
+    const data = await response.json();
+    if (data.address) {
+      // Try to get subdistrict (kecamatan)
+      return data.address.suburb || data.address.village || data.address.town || data.address.city_district || data.address.city || "Lokasi tidak dikenal";
+    }
+  } catch (error) {
+    console.error("Error fetching address:", error);
   }
   return null;
 }

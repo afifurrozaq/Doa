@@ -274,7 +274,7 @@ const SettingsTab: React.FC<SettingsTabProps> = ({
           <p className={cn(
             "font-bold",
             darkMode ? "text-emerald-200" : "text-emerald-900"
-          )}>1.2.0 (Stable)</p>
+          )}>1.4.0 (Stable)</p>
           <p className={cn(
             "text-[10px] mt-2",
             darkMode ? "text-emerald-700" : "text-emerald-500"
